@@ -49,5 +49,72 @@ BEGIN
 END
 $$;
 
--- Вариант 2, 
+-- Вариант 2, использование триггера
+CREATE OR REPLACE FUNCTION update_company_and_employees()
+RETURNS TRIGGER AS $$
+DECLARE
+    main_comp integer;
+BEGIN
+    main_comp := company_main();
+    IF NEW.type = 'главный' THEN
+        UPDATE person SET company = NEW.id WHERE company != NEW.id;
+    END IF;
 
+    -- IF NEW.type IS DISTINCT FROM OLD.type OR OLD.type IS NULL THEN
+    --     UPDATE company SET type = CASE 
+    --         WHEN id = main_comp THEN 'главный' 
+    --         ELSE 'филиал' 
+    --     END;
+
+    --     UPDATE person SET company = main_comp;
+    -- END IF;
+    RETURN NEW; -- Возвращаем новое значение, если необходимо
+END;
+$$
+LANGUAGE plpgsql;
+
+CREATE TRIGGER update_company_trigger
+AFTER INSERT OR UPDATE ON company
+FOR EACH ROW EXECUTE FUNCTION update_company_and_employees();
+
+-- пример использования
+DO $$
+BEGIN
+    -- Изменяем запись в таблице company (например, делаем компанию с id = 2 главной)
+    UPDATE company SET type = CASE 
+        WHEN id = 2 THEN 'главный' 
+        ELSE 'филиал'
+    END;
+    -- триггер автоматически выполнит обновление типов компаний
+END $$;
+
+
+
+
+
+
+
+
+
+
+
+
+
+CREATE OR REPLACE FUNCTION update_person_company()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF NEW.type = 'главный' THEN
+        UPDATE person SET company = NEW.id WHERE company != NEW.id;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER update_employee_company
+AFTER UPDATE ON company
+FOR EACH ROW
+EXECUTE FUNCTION update_person_company();
+
+UPDATE company 
+SET type = CASE WHEN id = 1 THEN 'главный' ELSE 'филиал' END 
+WHERE id = 1;
