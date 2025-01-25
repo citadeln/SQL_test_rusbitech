@@ -1,11 +1,3 @@
--- При отдельном выполнении оператора DO меняется головная компания, согласно значению company_main.
--- Затем происходит перемещение сотрудников в головную компанию.
-
--- Проблема: При изменении company_main головная компания у сотрудников меняется
---           только при повторном выполнении оператора DO.
--- Вопрос:   Найти и объяснить причину данного поведения.
--- Задание:  Предложить варианты решения (минимум два), с учетом того, что головную компанию может возвращать только функция company_main().
-
 DO $$
 DECLARE
     company_main integer = 1;
@@ -17,8 +9,7 @@ END
 $$;
 
 /*
-Ответ на вопрос:
-Почему при изменении company_main головная компания у сотрудников меняется только при повторном выполнении оператора DO:
+Ответ на вопрос "Почему при изменении company_main головная компания у сотрудников меняется только при повторном выполнении оператора DO":
 
 Потому что переменная company_main инициализируется статическим значением (например, 1), которое не обновляется автоматически. Это значение не связано с результатом функции company_main(), которая возвращает актуальный идентификатор главной компании. Следовательно, при выполнении оператора DO отработка функции company_main и далее указание компаний у сотрудников происходит на основе устаревшего значения переменной.
 */
@@ -31,7 +22,9 @@ $$;
 Также если функция возвращает NULL, это может привести к логическим ошибкам в приложении или бизнес-логике. Например, если приложение ожидает, что все сотрудники имеют связь с главной компанией (идентификатором), и функция возвращает NULL, это может вызвать сбои в работе приложения или неправильные вычисления, так как приложение не сможет корректно обработать отсутствие данных о компании.
 */
 
+
 -- Как исправить:
+
 -- Вариант 1, назначать кампанию 'главной' до отработки анонимного блока DO
 UPDATE company
 SET type = CASE 
@@ -49,6 +42,7 @@ BEGIN
 END
 $$;
 
+
 -- Вариант 2, использование триггера
 CREATE OR REPLACE FUNCTION update_company_and_employees()
 RETURNS TRIGGER AS $$
@@ -59,15 +53,6 @@ BEGIN
     IF NEW.type = 'главный' THEN
         UPDATE person SET company = NEW.id WHERE company != NEW.id;
     END IF;
-
-    -- IF NEW.type IS DISTINCT FROM OLD.type OR OLD.type IS NULL THEN
-    --     UPDATE company SET type = CASE 
-    --         WHEN id = main_comp THEN 'главный' 
-    --         ELSE 'филиал' 
-    --     END;
-
-    --     UPDATE person SET company = main_comp;
-    -- END IF;
     RETURN NEW; -- Возвращаем новое значение, если необходимо
 END;
 $$
@@ -88,33 +73,26 @@ BEGIN
     -- триггер автоматически выполнит обновление типов компаний
 END $$;
 
-
-
-
-
-
-
-
-
-
-
-
-
-CREATE OR REPLACE FUNCTION update_person_company()
-RETURNS TRIGGER AS $$
+-- Вариант 4, хранимая процедура (но тут тогда функция company_main() не нужна)
+CREATE OR REPLACE PROCEDURE company_updating(company_id integer)
+LANGUAGE plpgsql AS $$
 BEGIN
-    IF NEW.type = 'главный' THEN
-        UPDATE person SET company = NEW.id WHERE company != NEW.id;
-    END IF;
-    RETURN NEW;
+    UPDATE company 
+    SET type = CASE 
+        WHEN id = company_id THEN 'главный' 
+        ELSE 'филиал' 
+    END;
+    UPDATE person 
+    SET company = (SELECT id FROM company WHERE type = 'главный');
 END;
-$$ LANGUAGE plpgsql;
+$$;
+CALL company_updating(2);
 
-CREATE TRIGGER update_employee_company
-AFTER UPDATE ON company
-FOR EACH ROW
-EXECUTE FUNCTION update_person_company();
-
-UPDATE company 
-SET type = CASE WHEN id = 1 THEN 'главный' ELSE 'филиал' END 
-WHERE id = 1;
+-- Вариант 3, использование CTE
+WITH updated_company AS (
+    UPDATE company SET type = CASE 
+        WHEN id = 2 THEN 'главный' 
+        ELSE 'филиал' 
+    END RETURNING id
+)
+UPDATE person SET company = (SELECT company_main());
