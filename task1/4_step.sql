@@ -73,7 +73,7 @@ BEGIN
     -- триггер автоматически выполнит обновление типов компаний
 END $$;
 
--- Вариант 4, хранимая процедура (но тут тогда функция company_main() не нужна)
+-- Вариант 3, хранимая процедура (но тут тогда функция company_main() не нужна)
 CREATE OR REPLACE PROCEDURE company_updating(company_id integer)
 LANGUAGE plpgsql AS $$
 BEGIN
@@ -88,7 +88,7 @@ END;
 $$;
 CALL company_updating(2);
 
--- Вариант 3, использование CTE
+-- Вариант 4, использование CTE
 WITH updated_company AS (
     UPDATE company SET type = CASE 
         WHEN id = 2 THEN 'главный' 
