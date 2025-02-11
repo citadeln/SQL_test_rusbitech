@@ -1,3 +1,7 @@
+-- Задача: написать единый запрос для вставки 1000 уникальных кодов в таблицу public.codes, заполняя пропущенные id между первым id и максимальным.
+
+-- Если пропущенных id было меньше 1000, вставила их в конец таблицы.
+
 WITH numbered_codes AS (
     SELECT
         id,
@@ -16,285 +20,55 @@ missing_ids AS (
 ),
 generated_missing_ids AS (
     SELECT
-        generate_series(missing_id_start, missing_id_end) AS id
+        generate_series(missing_id_start, missing_id_end) AS id,
+        ROW_NUMBER() OVER () as rn
     FROM
         missing_ids
 ),
-unique_codes AS (
+codes_base AS (
     SELECT
-        FLOOR(RANDOM() * 2147483647) + 1 AS code
+        (FLOOR(RANDOM() * 2147483647) + 1)::TEXT AS code,
+        ROW_NUMBER() OVER () as rn
     FROM
         generate_series(1, 100000)
-)
-SELECT
-    t1.id,
-    'Код ' || t2.code,
-    t2.code
-FROM
-    (SELECT id, row_number() OVER () as rn FROM generated_missing_ids) t1
-RIGHT JOIN
-    (SELECT code, row_number() OVER () as rn FROM unique_codes) t2 ON t1.rn = t2.rn
-LIMIT 1000;
-
-
-
-
-
-
-
-
-
-
-
-
-
-WITH RECURSIVE
-    -- Находим все пропущенные id
-    missing_ids AS (
-        SELECT gs.num AS id
-        FROM generate_series((SELECT min(id) FROM public.codes), (SELECT max(id) FROM public.codes)) AS gs(num)
-        WHERE NOT EXISTS (SELECT 1 FROM public.codes WHERE id = gs.num)
-    ),
-    -- Считаем количество пропущенных id
-    missing_count AS (
-        SELECT COUNT(*) AS count FROM missing_ids
-    ),
-    -- Определяем, сколько кодов нужно сгенерировать всего (максимум 1000)
-    needed_count AS (
-        SELECT LEAST(1000, 1000 + (SELECT count FROM missing_count)) AS count
-    ),
-    -- Генерируем случайные коды
-    potential_codes AS (
-        SELECT
-          (FLOOR(RANDOM() * 2147483647) + 1)::INT AS candidate_code
-        FROM
-          generate_series(1, (SELECT count FROM needed_count))
-        WHERE
-          NOT EXISTS (
-            SELECT
-              1
-            FROM
-              public.codes
-            WHERE
-              code = (FLOOR(RANDOM() * 2147483647) + 1)::TEXT
-          )
-    ),
-        -- Распределяем коды по пропущенным ID (если есть) и новым ID
-    assigned_codes AS (
-        SELECT 
-            (CASE 
-                WHEN (SELECT count FROM missing_count) > 0 AND mi.id IS NOT NULL THEN mi.id
-                ELSE (SELECT COALESCE(MAX(id), 0) FROM public.codes) + ROW_NUMBER() OVER (ORDER BY pc.candidate_code)
-            END) AS target_id,
-            pc.candidate_code
-        FROM potential_codes pc
-        LEFT JOIN (SELECT id, ROW_NUMBER() OVER (ORDER BY id) as rn FROM missing_ids) mi ON pc.candidate_code = mi.rn
-          LIMIT 1000
-    ),
-    -- Отбираем только те ID и коды, которых еще нет в таблице
-    available_codes AS (
-        SELECT
-            ac.target_id AS id,
-            ac.candidate_code::TEXT AS code
-        FROM assigned_codes ac
-        WHERE NOT EXISTS (SELECT 1 FROM public.codes c WHERE c.id = ac.target_id OR c.code = ac.candidate_code::TEXT)
-        LIMIT 1000
-    )
--- Вставляем данные в таблицу
-INSERT INTO public.codes (id, code, name)
-SELECT
-  id,
-  code,
-  'Код ' || code
-FROM
-  available_codes
-ON CONFLICT (id)
-  DO NOTHING;
-
--- Возвращаем массив добавленных кодов
-SELECT array_agg(code) FROM available_codes;
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-WITH RECURSIVE
-  existing_max AS (
+),
+unique_codes AS (
+    SELECT 
+        cb.code,
+        cb.rn
+    FROM codes_base cb
+    LEFT JOIN public.codes c ON cb.code = c.code
+    WHERE c.code IS NULL
+),
+max_id AS (
     SELECT COALESCE(MAX(id), 0) AS max_id FROM public.codes
-  ),
-  -- Генерация недостающих id и кандидатов на новые коды
-  missing_ids AS (
+),
+extended_missing_ids AS (
     SELECT
-      gs.num AS missing_id,
-      (FLOOR(RANDOM() * 2147483647) + 1)::INT AS candidate_code
+        ROW_NUMBER() OVER () + (SELECT max_id FROM max_id) AS new_id,
+        ROW_NUMBER() OVER () as rn
     FROM
-      generate_series(
-        (SELECT max_id FROM existing_max) + 1,
-        (SELECT max_id + 1000 FROM existing_max)
-      ) AS gs(num)
-    WHERE
-      NOT EXISTS (
-        SELECT 1
-        FROM public.codes
-        WHERE code = (FLOOR(RANDOM() * 2147483647) + 1)::TEXT
-      )
+        generate_series(1, GREATEST(0, 1000 - (SELECT COUNT(*) FROM generated_missing_ids)))
+),
+combined_ids AS (
+    SELECT id, rn FROM generated_missing_ids
+    UNION ALL
+    SELECT new_id AS id, rn + (SELECT COUNT(*) FROM generated_missing_ids) AS rn FROM extended_missing_ids
+),
+limited_unique_codes AS (
+    SELECT code, rn
+    FROM unique_codes
     LIMIT 1000
-  ) 
--- Вставка недостающих данных
-INSERT INTO public.codes (id, code, name)
+)
+INSERT INTO public.codes (id, name, code)
 SELECT
-  missing_id,
-  candidate_code::TEXT,
-  'Код ' || candidate_code::TEXT
+    c.id AS id,
+    'Код ' || l.code AS name,
+    l.code
 FROM
-  missing_ids
-ON CONFLICT (id) DO NOTHING;
-
-SELECT array_agg(code) FROM available_codes;
-
-
-/*
--- Дозаполнение пропущенных id и генерация кодов (с учетом уникальности)
-WITH RECURSIVE
-  existing_max AS (
-    SELECT coalesce(max(id), 0) AS max_id FROM public.codes
-  ),
-  needed_count AS (
-    SELECT 1000 AS count
-  ),
-  -- Генерация пропущенных id и кандидатов на новые коды
-  missing_ids AS (
-    SELECT
-      gs.num AS missing_id,
-      (FLOOR(RANDOM() * 2147483647) + 1)::INT AS candidate_code
-    FROM
-      generate_series(
-        (
-          SELECT
-            max_id
-          FROM
-            existing_max
-        ) + 1,
-        (
-          SELECT
-            max_id + (
-              SELECT
-                count
-              FROM
-                needed_count
-            )
-          FROM
-            existing_max
-        )
-      ) AS gs(num)
-  ),
-  -- Исключаем уже существующие коды
-  available_codes AS (
-    SELECT
-      mi.missing_id AS id,
-      mi.candidate_code::TEXT AS code
-    FROM
-      missing_ids mi
-    WHERE
-      NOT EXISTS (
-        SELECT
-          1
-        FROM
-          public.codes
-        WHERE
-          code = mi.candidate_code::TEXT
-      )
-    LIMIT (
-      SELECT
-        count
-      FROM
-        needed_count
-    )
-  ) -- Вставка недостающих данных
-INSERT INTO
-  public.codes (id, code, name)
-SELECT
-  id,
-  code,
-  'Код ' || code
-FROM
-  available_codes
-ON CONFLICT (id)
-  DO NOTHING;
-
-
-/* -- Вывести массив 1000 кодов потенциальных для вставки
-WITH RECURSIVE
-  existing_max AS (
-    SELECT coalesce(max(id), 0) AS max_id FROM public.codes
-  ),
-  needed_count AS (
-    SELECT 1000 AS count
-  ),
-  -- Генерируем кандидаты на новые id и коды
-  candidate_ids AS (
-    SELECT
-      gs.num AS candidate_id,
-      (FLOOR(RANDOM() * 2147483647) + 1)::INT AS candidate_code
-    FROM
-      generate_series(
-        (
-          SELECT
-            max_id
-          FROM
-            existing_max
-        ) + 1,
-        (
-          SELECT
-            max_id + (
-              SELECT
-                count
-              FROM
-                needed_count
-            )
-          FROM
-            existing_max
-        )
-      ) AS gs(num)
-  ),
-  -- Исключаем уже существующие коды
-  available_codes AS (
-    SELECT
-      candidate_code::TEXT
-    FROM
-      candidate_ids
-    WHERE
-      NOT EXISTS (
-        SELECT
-          1
-        FROM
-          public.codes
-        WHERE
-          code = candidate_code::TEXT
-      )
-    LIMIT (
-      SELECT
-        count
-      FROM
-        needed_count
-    )
-  ) -- Формируем массив уникальных кодов
-SELECT
-  array_agg(candidate_code)
-FROM
-  available_codes;
+    limited_unique_codes l
+LEFT JOIN
+    combined_ids c ON l.rn = c.rn
+ORDER BY c.id
+LIMIT 1000
+ON CONFLICT DO NOTHING;
