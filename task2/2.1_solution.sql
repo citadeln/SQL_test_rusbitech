@@ -1,5 +1,6 @@
 -- 1.3. Для обеспечения уникальности полей code и name добавим ограничения на уровне базы данных:
-ALTER TABLE public.codes ADD CONSTRAINT unique_code_name UNIQUE (code, name);
+ALTER TABLE public.codes ADD CONSTRAINT unique_code UNIQUE (code);
+ALTER TABLE public.codes ADD CONSTRAINT unique_name UNIQUE (name);
 
 -- 1.4. Для уникальность поля code как целого числа, можно создать уникальный индекс, который будет применять преобразование типа
 CREATE UNIQUE INDEX unique_code_int ON public.codes ((code::int4));
@@ -17,6 +18,6 @@ SELECT code, 'Код ' || code AS name
 FROM unique_codes
 WHERE code IS NOT NULL
 LIMIT 10000
-ON CONFLICT (code, name) DO NOTHING;
+ON CONFLICT DO NOTHING;
 
 SELECT COUNT(*) FROM public.codes;
