@@ -1,3 +1,5 @@
+/*
+-- Не уверена в корректности решения
 --2.6. Скорость отработки функции можно улучшить с помощью использования индексов
 
 CREATE OR REPLACE FUNCTION get_available_codes(num_codes INT DEFAULT 1)
