@@ -1,3 +1,5 @@
+
+-- Вывод пропущенных id
 WITH numbered_codes AS (
     SELECT
         id,
@@ -20,7 +22,7 @@ SELECT
     NULL AS column3
 FROM
     missing_ids;
-    
+
 
 
 

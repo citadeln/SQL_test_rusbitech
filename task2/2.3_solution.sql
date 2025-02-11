@@ -1,3 +1,53 @@
+WITH numbered_codes AS (
+    SELECT
+        id,
+        LAG(id) OVER (ORDER BY id) AS prev_id
+    FROM
+        public.codes
+),
+missing_ids AS (
+    SELECT
+        prev_id + 1 AS missing_id_start,
+        id - 1 AS missing_id_end
+    FROM
+        numbered_codes
+    WHERE
+        id - prev_id > 1
+),
+generated_missing_ids AS (
+    SELECT
+        generate_series(missing_id_start, missing_id_end) AS id
+    FROM
+        missing_ids
+),
+unique_codes AS (
+    SELECT
+        FLOOR(RANDOM() * 2147483647) + 1 AS code
+    FROM
+        generate_series(1, 100000)
+)
+SELECT
+    t1.id,
+    'Код ' || t2.code,
+    t2.code
+FROM
+    (SELECT id, row_number() OVER () as rn FROM generated_missing_ids) t1
+RIGHT JOIN
+    (SELECT code, row_number() OVER () as rn FROM unique_codes) t2 ON t1.rn = t2.rn
+LIMIT 1000;
+
+
+
+
+
+
+
+
+
+
+
+
+
 WITH RECURSIVE
     -- Находим все пропущенные id
     missing_ids AS (

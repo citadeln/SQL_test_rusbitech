@@ -21,3 +21,23 @@ LIMIT 10000
 ON CONFLICT DO NOTHING;
 
 SELECT COUNT(*) FROM public.codes;
+
+
+
+
+
+
+WITH unique_codes AS (
+    SELECT
+        FLOOR(RANDOM() * 10) + 1 AS code 
+        --LPAD(FLOOR(RANDOM() * (10 ^ (1 + FLOOR(RANDOM() * 10))))::TEXT, 10, '0') AS code        
+    FROM generate_series(1, 100) -- Генерация большего количества строк для уникальности
+)
+INSERT INTO public.codes (code, name)
+SELECT code, 'Код ' || code AS name
+FROM unique_codes
+WHERE code IS NOT NULL
+LIMIT 10000
+ON CONFLICT DO NOTHING;
+
+SELECT COUNT(*) FROM public.codes;
